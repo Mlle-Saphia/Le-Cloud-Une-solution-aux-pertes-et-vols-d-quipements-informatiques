@@ -3,6 +3,7 @@ Le Cloud permet de stocker et protéger les données en ligne. Il résout les pr
 
 
 INTRODUCTION
+
 À l'ère du numérique, une contradiction majeure persiste dans le paysage technologique mondial. Alors que les pays développés exploitent des infrastructures cloud sophistiquées, de nombreuses régions en développement restent confrontées à un problème fondamental : la vulnérabilité physique des équipements informatiques. Cette situation crée un paradoxe où l'accès aux technologies numériques, théoriquement facilitateur de développement, devient source de risques et d'instabilité.
 Dans des contextes comme l'Afrique, les équipements informatiques - ordinateurs portables, smartphones ou supports de stockage - représentent bien plus que de simples outils technologiques. Ils constituent des investissements précieux, souvent acquis au prix d'efforts financiers considérables, et contiennent l'essentiel du capital informationnel des utilisateurs : données académiques, documents professionnels, archives personnelles et projets entrepreneuriaux.
 La menace qui pèse sur ces équipements est triple et systémique. Premièrement, les conditions environnementales - chaleur humide, poussière, variations électriques - accélèrent leur dégradation. Deuxièmement, l'insécurité et le vol constituent des risques permanents dans des environnements socio-économiques fragiles. Troisièmement, la médiocre qualité des équipements disponibles sur le marché, souvent composés de matériel d'occasion ou de contrefaçons, aggrave leur vulnérabilité.
