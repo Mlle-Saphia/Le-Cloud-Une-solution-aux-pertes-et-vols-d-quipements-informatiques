@@ -187,16 +187,6 @@ Sur le plan technologique : L'adoption massive du cloud favorisera l'émergence 
 
 Sur le plan environnemental : La mutualisation des ressources cloud réduira l'empreinte carbone du parc informatique tout en limitant la production de déchets électroniques. L'optimisation énergétique des data centers modernes contribuera à une croissance numérique plus durable.
 
-Indicateurs de succès :
-
-· Réduction de 90% des pertes de données critiques
-· Augmentation de 40% de l'adoption des services numériques
-· Réduction de 60% des coûts de maintenance informatique
-· Amélioration de 30% de la productivité des utilisateurs
-· Génération de 25% d'économies sur les budgets TIC
-
-Cette solution représente ainsi un investissement stratégique pour construire une société numérique résiliente, inclusive et tournée vers l'avenir.
-
 
 Conclusion 
 
