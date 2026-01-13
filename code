@@ -1,0 +1,243 @@
+/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+
+#include "ns3/core-module.h"
+#include "ns3/network-module.h"
+#include "ns3/internet-module.h"
+#include "ns3/point-to-point-module.h"
+#include "ns3/applications-module.h"
+#include "ns3/mobility-module.h"
+#include "ns3/netanim-module.h"
+
+using namespace ns3;
+
+NS_LOG_COMPONENT_DEFINE ("CloudWanSimulation");
+
+int 
+main (int argc, char *argv[])
+{
+  // Parametres de simulation
+  uint32_t nUsers = 5;
+  uint32_t nRemoteSites = 3;
+  double simTime = 100.0;
+  bool verbose = true;
+  
+  CommandLine cmd;
+  cmd.AddValue ("nUsers", "Nombre d'utilisateurs", nUsers);
+  cmd.AddValue ("nRemoteSites", "Nombre de sites distants", nRemoteSites);
+  cmd.AddValue ("simTime", "Duree de simulation", simTime);
+  cmd.AddValue ("verbose", "Mode verbose", verbose);
+  cmd.Parse (argc, argv);
+  
+  if (verbose)
+    {
+      LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
+      LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
+    }
+  
+  // Creation des noeuds - Serveurs Cloud
+  NodeContainer cloudServers;
+  cloudServers.Create (3);
+  
+  // Routeur SD-WAN central
+  Ptr<Node> sdwanRouter = CreateObject<Node> ();
+  
+  // Sites distants avec leurs routeurs CPE
+  NodeContainer remoteCPE;
+  remoteCPE.Create (nRemoteSites);
+  
+  // Utilisateurs finaux
+  NodeContainer localUsers;
+  localUsers.Create (nUsers);
+  
+  // Configuration Point-to-Point pour liens WAN
+  PointToPointHelper p2pWan;
+  p2pWan.SetDeviceAttribute ("DataRate", StringValue ("100Mbps"));
+  p2pWan.SetChannelAttribute ("Delay", StringValue ("50ms"));
+  
+  // Liens haute capacite vers cloud public
+  PointToPointHelper p2pCloud;
+  p2pCloud.SetDeviceAttribute ("DataRate", StringValue ("1Gbps"));
+  p2pCloud.SetChannelAttribute ("Delay", StringValue ("20ms"));
+  
+  // Liens locaux plus lents (simulation 4G/connexions limitees)
+  PointToPointHelper p2pLocal;
+  p2pLocal.SetDeviceAttribute ("DataRate", StringValue ("10Mbps"));
+  p2pLocal.SetChannelAttribute ("Delay", StringValue ("10ms"));
+  
+  // Installation de la pile Internet
+  InternetStackHelper stack;
+  stack.Install (cloudServers);
+  stack.Install (sdwanRouter);
+  stack.Install (remoteCPE);
+  stack.Install (localUsers);
+  
+  // Configuration des adresses IP
+  Ipv4AddressHelper address;
+  
+  // Connexion SD-WAN Router aux Cloud Servers
+  for (uint32_t i = 0; i < 3; i++)
+    {
+      NetDeviceContainer link = p2pCloud.Install (sdwanRouter, cloudServers.Get (i));
+      
+      std::ostringstream subnet;
+      subnet << "10.1." << i+1 << ".0";
+      address.SetBase (subnet.str ().c_str (), "255.255.255.0");
+      address.Assign (link);
+    }
+  
+  // Connexion SD-WAN Router aux CPE des sites distants
+  for (uint32_t i = 0; i < nRemoteSites; i++)
+    {
+      NetDeviceContainer link = p2pWan.Install (sdwanRouter, remoteCPE.Get (i));
+      
+      std::ostringstream subnet;
+      subnet << "10.2." << i+1 << ".0";
+      address.SetBase (subnet.str ().c_str (), "255.255.255.0");
+      address.Assign (link);
+    }
+  
+  // Connexion utilisateurs aux CPE (distribution round-robin)
+  for (uint32_t i = 0; i < nUsers; i++)
+    {
+      uint32_t cpeIndex = i % nRemoteSites;
+      NetDeviceContainer link = p2pLocal.Install (localUsers.Get (i), remoteCPE.Get (cpeIndex));
+      
+      std::ostringstream subnet;
+      subnet << "192.168." << (cpeIndex*10 + i) << ".0";
+      address.SetBase (subnet.str ().c_str (), "255.255.255.0");
+      address.Assign (link);
+    }
+  
+  // Configuration du routage global
+  Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
+  
+  // Configuration des applications
+  uint16_t backupPort = 9;
+  
+  // Serveur de sauvegarde sur Cloud Server 0 (Azure)
+  UdpEchoServerHelper backupServer (backupPort);
+  ApplicationContainer serverApps = backupServer.Install (cloudServers.Get (0));
+  serverApps.Start (Seconds (1.0));
+  serverApps.Stop (Seconds (simTime));
+  
+  // Serveur de collaboration sur Cloud Server 1 (Google Cloud)
+  UdpEchoServerHelper collabServer (backupPort);
+  ApplicationContainer collabApps = collabServer.Install (cloudServers.Get (1));
+  collabApps.Start (Seconds (1.0));
+  collabApps.Stop (Seconds (simTime));
+  
+  // Serveur souverain sur Cloud Server 2 (Cloud local)
+  UdpEchoServerHelper sovereignServer (backupPort);
+  ApplicationContainer sovApps = sovereignServer.Install (cloudServers.Get (2));
+  sovApps.Start (Seconds (1.0));
+  sovApps.Stop (Seconds (simTime));
+  
+  // Clients utilisateurs - simulation de sauvegardes et acces
+  for (uint32_t i = 0; i < nUsers; i++)
+    {
+      // Choix du serveur cloud cible (distribution)
+      uint32_t targetCloud = i % 3;
+      Ipv4Address serverAddr = cloudServers.Get (targetCloud)->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal ();
+      
+      UdpEchoClientHelper client (serverAddr, backupPort);
+      client.SetAttribute ("MaxPackets", UintegerValue (100));
+      client.SetAttribute ("Interval", TimeValue (Seconds (2.0)));
+      client.SetAttribute ("PacketSize", UintegerValue (1024));
+      
+      ApplicationContainer clientApp = client.Install (localUsers.Get (i));
+      clientApp.Start (Seconds (2.0 + i * 0.5));
+      clientApp.Stop (Seconds (simTime));
+    }
+  
+  // Configuration de la mobilite pour NetAnim
+  MobilityHelper mobility;
+  mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  
+  // Cloud Servers en haut
+  mobility.Install (cloudServers);
+  for (uint32_t i = 0; i < 3; i++)
+    {
+      Ptr<ConstantPositionMobilityModel> m = cloudServers.Get (i)->GetObject<ConstantPositionMobilityModel> ();
+      m->SetPosition (Vector (50.0 + i * 40.0, 10.0, 0.0));
+    }
+  
+  // SD-WAN Router au centre
+  mobility.Install (sdwanRouter);
+  Ptr<ConstantPositionMobilityModel> routerMob = sdwanRouter->GetObject<ConstantPositionMobilityModel> ();
+  routerMob->SetPosition (Vector (90.0, 50.0, 0.0));
+  
+  // CPE des sites distants
+  mobility.Install (remoteCPE);
+  for (uint32_t i = 0; i < nRemoteSites; i++)
+    {
+      Ptr<ConstantPositionMobilityModel> m = remoteCPE.Get (i)->GetObject<ConstantPositionMobilityModel> ();
+      double angle = (2.0 * M_PI * i) / nRemoteSites;
+      m->SetPosition (Vector (90.0 + 40.0 * cos (angle), 90.0 + 40.0 * sin (angle), 0.0));
+    }
+  
+  // Utilisateurs autour des CPE
+  mobility.Install (localUsers);
+  for (uint32_t i = 0; i < nUsers; i++)
+    {
+      uint32_t cpeIndex = i % nRemoteSites;
+      Ptr<ConstantPositionMobilityModel> cpeMob = remoteCPE.Get (cpeIndex)->GetObject<ConstantPositionMobilityModel> ();
+      Vector cpePos = cpeMob->GetPosition ();
+      
+      double offsetAngle = (2.0 * M_PI * i) / nUsers;
+      Ptr<ConstantPositionMobilityModel> m = localUsers.Get (i)->GetObject<ConstantPositionMobilityModel> ();
+      m->SetPosition (Vector (cpePos.x + 15.0 * cos (offsetAngle), 
+                              cpePos.y + 15.0 * sin (offsetAngle), 0.0));
+    }
+  
+  // Configuration NetAnim
+  AnimationInterface anim ("cloud-wan-simulation.xml");
+  
+  // Description des noeuds
+  anim.UpdateNodeDescription (cloudServers.Get (0), "Azure Cloud");
+  anim.UpdateNodeDescription (cloudServers.Get (1), "Google Cloud");
+  anim.UpdateNodeDescription (cloudServers.Get (2), "Cloud Local");
+  anim.UpdateNodeDescription (sdwanRouter, "SD-WAN Router");
+  
+  for (uint32_t i = 0; i < nRemoteSites; i++)
+    {
+      std::ostringstream ss;
+      ss << "CPE Site " << i+1;
+      anim.UpdateNodeDescription (remoteCPE.Get (i), ss.str ());
+    }
+  
+  for (uint32_t i = 0; i < nUsers; i++)
+    {
+      std::ostringstream ss;
+      ss << "Utilisateur " << i+1;
+      anim.UpdateNodeDescription (localUsers.Get (i), ss.str ());
+    }
+  
+  // Couleurs des noeuds
+  anim.UpdateNodeColor (cloudServers.Get (0), 0, 128, 255);
+  anim.UpdateNodeColor (cloudServers.Get (1), 66, 133, 244);
+  anim.UpdateNodeColor (cloudServers.Get (2), 34, 139, 34);
+  anim.UpdateNodeColor (sdwanRouter, 255, 140, 0);
+  
+  for (uint32_t i = 0; i < nRemoteSites; i++)
+    anim.UpdateNodeColor (remoteCPE.Get (i), 255, 215, 0);
+  
+  for (uint32_t i = 0; i < nUsers; i++)
+    anim.UpdateNodeColor (localUsers.Get (i), 128, 128, 128);
+  
+  // Taille des noeuds
+  for (uint32_t i = 0; i < 3; i++)
+    anim.UpdateNodeSize (cloudServers.Get (i)->GetId (), 8.0, 8.0);
+  
+  anim.UpdateNodeSize (sdwanRouter->GetId (), 6.0, 6.0);
+  
+  // Execution de la simulation
+  NS_LOG_INFO ("Demarrage de la simulation Cloud-WAN...");
+  
+  Simulator::Stop (Seconds (simTime));
+  Simulator::Run ();
+  Simulator::Destroy ();
+  
+  NS_LOG_INFO ("Simulation terminee. Fichier NetAnim genere: cloud-wan-simulation.xml");
+  
+  return 0;
+}
